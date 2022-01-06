@@ -1,0 +1,6 @@
+.vscode/
+**/__pycache__
+merdetti.egg-info/
+build/
+venv/
+.env
