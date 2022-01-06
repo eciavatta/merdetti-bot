@@ -17,12 +17,12 @@ logger = logging.getLogger(__name__)
 
 def main():
     if not load_dotenv():
-        logger.debug("Failed to load environment variables from .env file")
+        logger.debug('Failed to load environment variables from .env file')
 
-    required_vars = ["TELEGRAM_TOKEN", "ZUCCHETTI_BASE_URL"]
+    required_vars = ['TELEGRAM_TOKEN', 'ZUCCHETTI_BASE_URL']
     for var in required_vars:
         if not os.getenv(var):
-            logger.error(f"{var} variable not present")
+            logger.error(f'{var} variable not present')
             return False
 
     run()
@@ -30,5 +30,5 @@ def main():
     return True
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     sys.exit(0 if main() else 1)
