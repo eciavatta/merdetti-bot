@@ -66,7 +66,7 @@ class ZucchettiApi:
 
         if len(data) > 0:
             for stamp in data[:-1]:
-                stamps[stamp[1]] = stamp[2]
+                stamps[stamp[2]] = stamp[1]
 
         return stamps
 
@@ -89,8 +89,8 @@ class ZucchettiApi:
         m_cID = match.group(1)
 
         data = {'verso': direction, 'causale': '', 'm_cID': m_cID}
-        # response = self._session.post(
-        #    BASE_URL + STAMP_PATH, data, timeout=REQUEST_TIMEOUT)
+        response = self._session.post(
+            self._base_url + STAMP_PATH, data, timeout=REQUEST_TIMEOUT)
         if response.status_code != 200:
             raise ApiError(f'Invalid status code: {response.status_code}')
 

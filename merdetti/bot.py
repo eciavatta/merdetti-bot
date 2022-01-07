@@ -29,7 +29,19 @@ END = ConversationHandler.END
     PROMPT_CREDENTIALS_MESSAGE,
 ) = map(chr, range(7, 10))
 
+users = dict()
 
+
+def save_user(func):
+    def inner(*args, **kwargs):
+        update, context = args
+        users[update.effective_user.id] = update.effective_user.first_name
+
+        return func(*args, **kwargs)
+    return inner
+
+
+@save_user
 def start(update: Update, context: CallbackContext) -> str:
     button = InlineKeyboardButton(
         text='Login', callback_data=str(LOGIN_CALLBACK))
@@ -46,6 +58,7 @@ def start(update: Update, context: CallbackContext) -> str:
     return UNLOGGED_STATE
 
 
+@save_user
 def login(update: Update, context: CallbackContext) -> str:
     if not context.user_data.get(PROMPT_CREDENTIALS_MESSAGE):
         if update.callback_query:
@@ -100,6 +113,7 @@ def login(update: Update, context: CallbackContext) -> str:
     return LOGGED_STATE
 
 
+@save_user
 def stamp_command(update: Update, context: CallbackContext) -> str:
     zucchetti_api = context.user_data[ZUCCHETTI_API]
 
@@ -200,7 +214,7 @@ def stamp(update: Update, context: CallbackContext, enter: bool) -> int:
             '⚠️ Non riesco a timbrare. Riprova più tardi..')
 
         logger.warning(
-            f'Failed to stamp for user {update.message.from_user.first_name}: {e}')
+            f'Failed to stamp for user {update.callback_query.from_user.first_name}: {e}')
 
         return LOGGED_STATE
 
@@ -208,6 +222,19 @@ def stamp(update: Update, context: CallbackContext, enter: bool) -> int:
         f'Timbrato con successo 🤟🏽\n\n{stamp_message(status)}')
 
     return LOGGED_STATE
+
+
+def message(update: Update, context: CallbackContext) -> str:
+    admins = os.getenv('ADMIN_USERS')
+    if not admins:
+        return
+
+    if not str(update.message.from_user.id) in admins:
+        return
+
+    message = re.sub('^/message ', '', update.message.text)
+    for user_id, _ in users.items():
+        context.bot.send_message(chat_id=user_id, text=message)
 
 
 def stamp_message(status: dict) -> str:
@@ -253,7 +280,9 @@ def run() -> None:
                                      str(EXIT_CALLBACK) + '$')
             ],
         },
-        fallbacks=[]
+        fallbacks=[
+            CommandHandler('messaggio', message),
+        ]
     )
 
     dispatcher.add_handler(conv_handler)
