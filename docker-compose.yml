@@ -6,4 +6,7 @@ services:
     environment:
       TELEGRAM_TOKEN: telegram_token_here
       ZUCCHETTI_BASE_URL: https://www.myinfinityportal.it/zucchetti_merda
+      DATA_DIR: /data
     restart: unless-stopped
+    volumes:
+      - "./data:/data"

@@ -4,3 +4,4 @@ merdetti.egg-info/
 build/
 venv/
 .env
+*.db

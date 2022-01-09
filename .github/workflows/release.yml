@@ -33,6 +33,6 @@ jobs:
           context: .
           push: true
           tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
+          labels: latest
       - name: Image digests
         run: echo ${{ steps.docker_build.outputs.digest }}
