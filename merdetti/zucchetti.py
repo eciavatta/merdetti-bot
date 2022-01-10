@@ -1,6 +1,6 @@
 import os
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import requests
 
@@ -53,13 +53,31 @@ class ZucchettiApi:
 
         self._session = session
 
-    def status(self) -> dict:
+    def last_stamps(self, interval=12) -> list:
+        now = datetime.now()
+        limit = now - timedelta(hours=interval)
+
+        stamps = []
+
+        def add_stamps(day):
+            for stamp in self._get_stamps(day):
+                stamp_time = datetime.strptime(stamp[1], "%H:%M")
+                if day.replace(hour=stamp_time.hour, minute=stamp_time.minute) > limit:
+                    stamps.append(stamp)
+
+        if limit.day != now.day:
+            add_stamps(limit)
+        add_stamps(now)
+
+        return stamps
+
+    def _get_stamps(self, day) -> list:
         data = {
             "rows": "10",
             "startrow": "0",
             "count": "true",
             "sqlcmd": "rows:ushp_fgettimbrus",
-            "pDATE": datetime.now().strftime("%Y-%m-%d"),
+            "pDATE": day.strftime("%Y-%m-%d"),
         }
         response = self._session.post(
             self._base_url + SQL_DATA_PROVIDER_PATH, data, timeout=REQUEST_TIMEOUT
@@ -72,14 +90,10 @@ class ZucchettiApi:
         if "Data" not in result:
             raise ApiError(f"Invalid response from server: {result}")
 
-        stamps = {}
-        data = result["Data"]
+        if len(result["Data"]) > 0:
+            return [(stamp[2], stamp[1]) for stamp in result["Data"][:-1]]
 
-        if len(data) > 0:
-            for stamp in data[:-1]:
-                stamps[stamp[2]] = stamp[1]
-
-        return stamps
+        return []
 
     def enter(self):
         self._stamp("E")

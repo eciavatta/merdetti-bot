@@ -5,8 +5,13 @@ from typing import Tuple
 
 import schedule
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
-from telegram.ext import (CallbackContext, CallbackQueryHandler,
-                          ConversationHandler, Filters, MessageHandler)
+from telegram.ext import (
+    CallbackContext,
+    CallbackQueryHandler,
+    ConversationHandler,
+    Filters,
+    MessageHandler,
+)
 from telegram.ext.updater import Updater
 
 (
@@ -56,29 +61,27 @@ notification_jobs = dict()
 
 def main_menu(update: Update, context: CallbackContext) -> int:
     stamp_reminders = context.user_data.get(STAMP_REMINDERS)
-    buttons = [InlineKeyboardButton(text="Annulla", callback_data=BACK_CALLBACK)]
+    buttons = [InlineKeyboardButton(text="Indietro", callback_data=BACK_CALLBACK)]
 
     if stamp_reminders and len(stamp_reminders) > 0:
         buttons.append(
-            InlineKeyboardButton(text="Rimuovi notifica", callback_data=REMOVE_CALLBACK)
+            InlineKeyboardButton(text="Rimuovi 🔕", callback_data=REMOVE_CALLBACK)
         )
 
-    buttons.append(
-        InlineKeyboardButton(text="Aggiungi notifica", callback_data=ADD_CALLBACK)
-    )
+    buttons.append(InlineKeyboardButton(text="Aggiungi 🔔", callback_data=ADD_CALLBACK))
     keyboard = InlineKeyboardMarkup([buttons])
 
-    message = "Attraverso le notifiche ti posso avvertire quando ti dimentichi di timbrare. Scegli cosa fare!"
+    message = (
+        "Attraverso le notifiche ti posso avvertire quando ti dimentichi di timbrare 🚨"
+    )
 
     if update.message:
         update.message.reply_text(text=message, reply_markup=keyboard)
     else:
-        update.callback_query.answer()
         update.callback_query.edit_message_text(text=message, reply_markup=keyboard)
 
 
 def end(update: Update, context: CallbackContext) -> int:
-    update.callback_query.answer()
     update.callback_query.delete_message()
 
     return ConversationHandler.END
@@ -93,7 +96,7 @@ def back(update: Update, context: CallbackContext) -> int:
 def remove_menu(update: Update, context: CallbackContext) -> int:
     stamp_reminders = context.user_data.get(STAMP_REMINDERS)
 
-    message = "Invia il numero della notifica da rimuovere, o annulla l'operazione:\n\n"
+    message = "Invia il numero della notifica da rimuovere ✍🏽\n\n"
 
     for i in range(len(stamp_reminders)):
         stamp_type = stamp_reminders[i][STAMP_TYPE]
@@ -102,9 +105,9 @@ def remove_menu(update: Update, context: CallbackContext) -> int:
             [DAYS_OF_WEEK[d][:3] for d in stamp_reminders[i][WHEN_DAYS]]
         )
 
-        message += f"{i+1}: {stamp_type} alle ore {when_time} del giorno {when_days}\n"
+        message += f"{i+1}: {stamp_type} alle ore {when_time} nei giorni {when_days}\n"
 
-    button = InlineKeyboardButton(text="Annulla", callback_data=BACK_CALLBACK)
+    button = InlineKeyboardButton(text="Indietro", callback_data=BACK_CALLBACK)
     keyboard = InlineKeyboardMarkup.from_button(button)
 
     update.callback_query.edit_message_text(text=message, reply_markup=keyboard)
@@ -118,7 +121,7 @@ def remove_action(update: Update, context: CallbackContext) -> int:
         index -= 1
     except:
         update.message.reply_text(
-            text="Devi inserire il numero della notifica da rimuovere"
+            text="Devi inserire il numero della notifica da rimuovere 🔢"
         )
         return
 
@@ -126,7 +129,7 @@ def remove_action(update: Update, context: CallbackContext) -> int:
 
     if index < 0 or index >= len(stamp_reminders):
         update.message.reply_text(
-            text=f"Devi inserire l'id della notifica da rimuovere"
+            text=f"Devi inserire l'id della notifica da rimuovere 🔢"
         )
         return
 
@@ -139,7 +142,7 @@ def remove_action(update: Update, context: CallbackContext) -> int:
 
     button = InlineKeyboardButton(text="Indietro", callback_data=BACK_CALLBACK)
     keyboard = InlineKeyboardMarkup.from_button(button)
-    update.message.reply_text(text="Notifica rimossa!", reply_markup=keyboard)
+    update.message.reply_text(text="Notifica rimossa! ✅", reply_markup=keyboard)
 
     return REMOVE_EXIT_STATE
 
@@ -148,15 +151,13 @@ def add_menu(update: Update, context: CallbackContext) -> int:
     context.user_data[TMP_NOTIFICATION] = {WHEN_DAYS: [0, 1, 2, 3, 4]}
 
     buttons = [
-        InlineKeyboardButton(text="Annulla", callback_data=BACK_CALLBACK),
-        InlineKeyboardButton(
-            text="Ricorda entrata", callback_data=REMIND_ENTER_CALLBACK
-        ),
-        InlineKeyboardButton(text="Ricorda uscita", callback_data=REMIND_EXIT_CALLBACK),
+        InlineKeyboardButton(text="Indietro", callback_data=BACK_CALLBACK),
+        InlineKeyboardButton(text="Entrata ➡️", callback_data=REMIND_ENTER_CALLBACK),
+        InlineKeyboardButton(text="Uscita ⬅️", callback_data=REMIND_EXIT_CALLBACK),
     ]
     keyboard = InlineKeyboardMarkup([buttons])
     update.callback_query.edit_message_text(
-        "Scegli il tipo di notifica da aggiungere", reply_markup=keyboard
+        "Scegli il tipo di notifica da aggiungere 📢", reply_markup=keyboard
     )
 
     return CHOOSE_DAYS_STATE
@@ -189,9 +190,7 @@ def choose_days(update: Update, context: CallbackContext) -> int:
         for day in DAYS_OF_WEEK.values()
     ]
 
-    message = (
-        "Scegli i giorni della settimana in cui vuoi essere notificato.\n\nAttivi: "
-    )
+    message = "Scegli i giorni della settimana in cui vuoi essere notificato 🗓️\n\nGiorni abilitati: "
     message += ", ".join(DAYS_OF_WEEK[d] for d in tmp_notification[WHEN_DAYS])
 
     buttons = [
@@ -199,7 +198,7 @@ def choose_days(update: Update, context: CallbackContext) -> int:
         days_of_week_buttons[3:6],
         [
             days_of_week_buttons[6],
-            InlineKeyboardButton(text="Annulla", callback_data=BACK_CALLBACK),
+            InlineKeyboardButton(text="Indietro", callback_data=BACK_CALLBACK),
             InlineKeyboardButton(text="Fatto", callback_data=CHOOSE_TIME_CALLBACK),
         ],
     ]
@@ -209,11 +208,13 @@ def choose_days(update: Update, context: CallbackContext) -> int:
 
 def choose_time_wrapper(stamp_reminder_callback):
     def choose_time(update: Update, context: CallbackContext) -> int:
-        button = InlineKeyboardButton(text="Annulla", callback_data=BACK_CALLBACK)
+        button = InlineKeyboardButton(text="Indietro", callback_data=BACK_CALLBACK)
         keyboard = InlineKeyboardMarkup.from_button(button)
 
         if update.callback_query:
-            message = "Inserisci l'orario in cui inviare la notifica, nel formato HH:MM"
+            message = (
+                "Inserisci l'orario in cui inviare la notifica, nel formato HH:MM 🕐"
+            )
             update.callback_query.edit_message_text(text=message, reply_markup=keyboard)
 
             return CHOOSE_TIME_STATE
@@ -242,12 +243,12 @@ def choose_time_wrapper(stamp_reminder_callback):
             )
             notification_jobs[(user_id, notification_key(schedule_data))] = job
 
-            message = "Notifica aggiunta con successo!"
+            message = "Notifica aggiunta! ✅"
             update.message.reply_text(text=message, reply_markup=keyboard)
 
             return ADD_EXIT_STATE
 
-        message = "L'orario deve essere nel formato HH:MM"
+        message = "L'orario deve essere nel formato HH:MM ⚠️"
         update.message.reply_text(text=message, reply_markup=keyboard)
 
     return choose_time
