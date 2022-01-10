@@ -376,6 +376,7 @@ def run() -> None:
         states={
             UNLOGGED_STATE: [
                 CommandHandler("login", login),
+                CallbackQueryHandler(login, pattern="^" + LOGIN_CALLBACK + "$"),
             ],
             LOGIN_STATE: [MessageHandler(Filters.text & ~Filters.command, login)],
             LOGGED_STATE: [
