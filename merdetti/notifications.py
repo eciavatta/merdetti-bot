@@ -1,9 +1,9 @@
 import logging
 import re
-from threading import Thread
 from typing import Tuple
 
-import schedule
+from dateutil.tz import tzlocal
+from datetime import datetime
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import (
     CallbackContext,
@@ -133,11 +133,9 @@ def remove_action(update: Update, context: CallbackContext) -> int:
         )
         return
 
-    schedule.cancel_job(
-        notification_jobs[
-            (update.effective_user.id, notification_key(stamp_reminders[index]))
-        ]
-    )
+    notification_jobs[
+        (update.effective_user.id, notification_key(stamp_reminders[index]))
+    ].schedule_removal()
     context.user_data[STAMP_REMINDERS].remove(stamp_reminders[index])
 
     button = InlineKeyboardButton(text="Indietro", callback_data=BACK_CALLBACK)
@@ -231,16 +229,22 @@ def choose_time_wrapper(stamp_reminder_callback):
             reminders.append(schedule_data)
             context.user_data[STAMP_REMINDERS] = reminders
 
-            job = (
-                schedule.every()
-                .day.at(input_time)
-                .do(
-                    stamp_reminder_callback,
-                    bot=context.bot,
-                    user_id=user_id,
-                    schedule_data=schedule_data,
-                )
+            job_time = (
+                datetime.strptime(schedule_data[WHEN_TIME], "%H:%M")
+                .replace(tzinfo=tzlocal())
+                .time()
             )
+            job = context.job_queue.run_daily(
+                stamp_reminder_callback,
+                time=job_time,
+                days=schedule_data[WHEN_DAYS],
+                context={
+                    "bot": context.bot,
+                    "user_id": user_id,
+                    "schedule_data": schedule_data,
+                },
+            )
+
             notification_jobs[(user_id, notification_key(schedule_data))] = job
 
             message = "Notifica aggiunta! ✅"
@@ -254,29 +258,27 @@ def choose_time_wrapper(stamp_reminder_callback):
     return choose_time
 
 
-def schedule_loop():
-    while True:
-        schedule.run_pending()
-
-
 def setup_scheduler(updater: Updater, stamp_reminder_callback):
     for user_id, user_values in updater.persistence.get_user_data().items():
         if STAMP_REMINDERS in user_values:
             for schedule_data in user_values[STAMP_REMINDERS]:
-                job = (
-                    schedule.every()
-                    .day.at(schedule_data[WHEN_TIME])
-                    .do(
-                        stamp_reminder_callback,
-                        bot=updater.bot,
-                        user_id=user_id,
-                        schedule_data=schedule_data,
-                    )
+                job_time = (
+                    datetime.strptime(schedule_data[WHEN_TIME], "%H:%M")
+                    .replace(tzinfo=tzlocal())
+                    .time()
                 )
-                notification_jobs[(user_id, notification_key(schedule_data))] = job
+                job = updater.job_queue.run_daily(
+                    stamp_reminder_callback,
+                    time=job_time,
+                    days=schedule_data[WHEN_DAYS],
+                    context={
+                        "bot": updater.bot,
+                        "user_id": user_id,
+                        "schedule_data": schedule_data,
+                    },
+                )
 
-    schedule_thread = Thread(target=schedule_loop)
-    schedule_thread.start()
+                notification_jobs[(user_id, notification_key(schedule_data))] = job
 
 
 def notification_handler(exit_state: int, stamp_reminder_callback):

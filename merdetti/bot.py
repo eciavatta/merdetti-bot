@@ -1,10 +1,8 @@
 import logging
 import os
 import re
-from datetime import datetime
 
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update, replymarkup
-from telegram.bot import Bot
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import (
     CallbackContext,
     CallbackQueryHandler,
@@ -274,9 +272,10 @@ def stamp_message(stamps: list) -> str:
     )
 
 
-def stamp_reminder(bot: Bot, user_id: int, schedule_data: dict) -> None:
-    if not datetime.now().weekday() in schedule_data["when_days"]:
-        return
+def stamp_reminder(context: CallbackContext) -> None:
+    bot = context.job.context['bot']
+    user_id = context.job.context['user_id']
+    schedule_data = context.job.context['schedule_data']
 
     stamp_type = schedule_data["stamp_type"]
     zucchetti_api = zucchetti_users.get(user_id)
