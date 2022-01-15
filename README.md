@@ -4,7 +4,16 @@ A Telegram bot that can be used to stamp the card on that horrible platform call
 
 ## Features
 
-- Stamp the entry and exit and get the status of the card
+- Stamp the entry and exit and get the status of the card 🎫
+- Smart notifications to let you know when you forgot to stamp 📢
+
+## Commands
+
+- `/login`: saves the user's credentials to access the platform in memory
+- `/timbra`: checks the status of the card and asks the user if they wants to stamp
+- `/notifiche`: allows the user to configure notifications
+- `/messaggio`: allows admin users to send a message to all users of the bot
+- `/entra` e `/esci`: shortcuts to stamp the card (they do not ask for confirmation)
 
 ## Remarks
 
