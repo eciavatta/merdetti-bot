@@ -115,6 +115,7 @@ class ZucchettiApi:
         m_cID = match.group(1)
 
         data = {"verso": direction, "causale": "", "m_cID": m_cID}
+        return
         response = self._session.post(
             self._base_url + STAMP_PATH, data, timeout=REQUEST_TIMEOUT
         )

@@ -2,87 +2,61 @@ import logging
 import os
 import re
 
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
-from telegram.ext import (
-    CallbackContext,
-    CallbackQueryHandler,
-    CommandHandler,
-    ConversationHandler,
-    Filters,
-    MessageHandler,
-    PicklePersistence,
-    Updater,
-)
+from telegram import Update
+from telegram.ext import (CallbackContext, CallbackQueryHandler,
+                          CommandHandler, Filters, MessageHandler,
+                          PicklePersistence, Updater)
 
 from merdetti import notifications
 from merdetti.zucchetti import ApiError, InvalidCredentials, ZucchettiApi
 
+from .constants import *
+from .helpers import (admin_user, callback, callback_pattern, logged_user,
+                      make_keyboard)
+
 logger = logging.getLogger(__name__)
 
-UNLOGGED_STATE, LOGIN_STATE, LOGGED_STATE, NOTIFICATION_STATE = (
-    "unlogged_state",
-    "login_state",
-    "logged_state",
-    "notification_state",
-)
 
-LOGIN_CALLBACK, CANCEL_CALLBACK, ENTER_CALLBACK, EXIT_CALLBACK = (
-    "login_callback",
-    "cancel_callback",
-    "enter_callback",
-    "exit_callback",
-)
-
-END = ConversationHandler.END
-
-(ALREADY_STARTED, PROMPT_CREDENTIALS_MESSAGE) = (
-    "already_started",
-    "promt_credentials_message",
+LOGIN_MESSAGE = (
+    "Inserisci le tue credenziali di Zucchetti 🔐, separate da uno spazio.\n\n"
+    "Dovrò salvare le tue credenziali in memoria per non richiederti le credenziali tutte le volte, ma non le scriverò da nessuna parte. Lo giuro! 🙇🏽‍♂️"
 )
 
 
 zucchetti_users = dict()
 
 
-def start(update: Update, context: CallbackContext) -> int:
-    button = InlineKeyboardButton(text="Login", callback_data=LOGIN_CALLBACK)
-    keyboard = InlineKeyboardMarkup.from_button(button)
+def start_command(update: Update, context: CallbackContext):
+    update.message.reply_text(
+        "Ciao! Io sono merdetti-bot 💩! Con me potrai timbrare il cartellino senza dover entrare in quell'orribile portale 😭\n\n"
+        "Ma prima devi effettuare il login!",
+        reply_markup=make_keyboard(("Login", LOGIN_CALLBACK), context),
+    )
 
-    if not context.user_data.get(ALREADY_STARTED):
-        update.message.reply_text(
-            "Ciao! Io sono merdetti-bot 💩! Con me potrai timbrare il cartellino senza dover entrare in quell'orribile portale 😭\n\n"
-            "Ma prima devi effettuare il login!",
-            reply_markup=keyboard,
-        )
-
-        context.user_data[ALREADY_STARTED] = True
-
-    return UNLOGGED_STATE
+    context.user_data[STATE] = STATE_MAIN
 
 
-def login(update: Update, context: CallbackContext) -> int:
-    if not context.user_data.get(PROMPT_CREDENTIALS_MESSAGE):
-        if update.callback_query:
-            func = update.callback_query.edit_message_text
-        else:
-            func = update.message.reply_text
+def login_command(update: Update, context: CallbackContext):
+    update.message.reply_text(LOGIN_MESSAGE)
 
-        func(
-            "Inserisci le tue credenziali di Zucchetti 🔐, separate da uno spazio.\n\n"
-            "Dovrò salvare le tue credenziali in memoria per non richiederti le credenziali tutte le volte, ma non le scriverò da nessuna parte. Lo giuro! 🙇🏽‍♂️"
-        )
-        context.user_data[PROMPT_CREDENTIALS_MESSAGE] = True
+    context.user_data[STATE] = STATE_WAITING_CREDENTIALS
 
-        return LOGIN_STATE
 
+@callback
+def login_callback(update: Update, context: CallbackContext):
+    update.callback_query.edit_message_text(LOGIN_MESSAGE)
+
+    context.user_data[STATE] = STATE_WAITING_CREDENTIALS
+
+
+def credentials_input(update: Update, context: CallbackContext):
     match = re.match(r"^([\S]+)[\s]+(\S+)$", update.message.text)
     if not match:
         update.message.reply_markdown(
             "Devi inserire le credenziali nel seguente formato: `USERNAME PASSWORD`\n"
             "Inserisci le credenziali di nuovo! 😑"
         )
-
-        return LOGIN_STATE
+        return
 
     zucchetti_api = ZucchettiApi(match[1], match[2])
     try:
@@ -92,8 +66,7 @@ def login(update: Update, context: CallbackContext) -> int:
             "Le credenziali che hai inserito non sono corrette!\n"
             "Inseriscile nuovamente (quelle giuste magari 😅)"
         )
-
-        return LOGIN_STATE
+        return
     except ApiError as e:
         update.message.reply_text(
             "Non sono riuscito a verificare le tue credenziali 😓. Riprova più tardi rieffettuando il /login"
@@ -103,15 +76,21 @@ def login(update: Update, context: CallbackContext) -> int:
             f"Failed to authenticate a user {update.message.from_user.first_name}: {e}"
         )
 
-        return UNLOGGED_STATE
+        context.user_data[STATE] = STATE_MAIN
+        return
 
     zucchetti_users[update.effective_user.id] = zucchetti_api
-    context.user_data[PROMPT_CREDENTIALS_MESSAGE] = False
+    context.user_data[LOGGED] = True
+    context.user_data[STATE] = STATE_MAIN
+
     update.message.reply_text(
         "Credenziali salvate con successo!\n\nUsa /timbra per timbrare 🎫\nUsa /notifiche per impostare gli avvisi 📢"
     )
 
-    return LOGGED_STATE
+
+def user_input(update: Update, context: CallbackContext):
+    if context.user_data.get(STATE) == STATE_WAITING_CREDENTIALS:
+        credentials_input(update, context)
 
 
 def get_zucchetti_api(update: Update, context: CallbackContext):
@@ -122,8 +101,7 @@ def get_zucchetti_api(update: Update, context: CallbackContext):
             f"Scusami tanto, ma mi sono dimenticato le tue credenziali 😕\n"
             "Devi rieffettiare il login per timbrare nuovamente"
         )
-        button = InlineKeyboardButton(text="Login", callback_data=LOGIN_CALLBACK)
-        keyboard = InlineKeyboardMarkup.from_button(button)
+        keyboard = make_keyboard(("Login", LOGIN_CALLBACK), context)
 
         if update.callback_query:
             update.callback_query.edit_message_text(text=message, reply_markup=keyboard)
@@ -133,32 +111,25 @@ def get_zucchetti_api(update: Update, context: CallbackContext):
     return zucchetti_api
 
 
-def stamp_command(update: Update, context: CallbackContext) -> int:
-    if not context.user_data.get(ALREADY_STARTED):
-        message = (
-            f"Devi fornirmi prima le tue credenziali se vuoi iniziare ad usare il bot 🙂"
-        )
-        button = InlineKeyboardButton(text="Login", callback_data=LOGIN_CALLBACK)
-        keyboard = InlineKeyboardMarkup.from_button(button)
-
-        return UNLOGGED_STATE
+@logged_user
+def stamp_command(update: Update, context: CallbackContext):
+    context.user_data[STATE] = STATE_MAIN
 
     zucchetti_api = get_zucchetti_api(update, context)
     if not zucchetti_api:
-        return UNLOGGED_STATE
+        context.user_data[LOGGED] = False
+        return
 
     try:
         zucchetti_api.login()
     except InvalidCredentials:
-        button = InlineKeyboardButton(text="Login", callback_data=LOGIN_CALLBACK)
-        keyboard = InlineKeyboardMarkup.from_button(button)
-
         update.message.reply_text(
             text="Le credenziali che avevi precedentemente inserito non sono più valide 🙁",
-            reply_markup=keyboard,
+            reply_markup=make_keyboard(("Login", LOGIN_CALLBACK), context),
         )
 
-        return UNLOGGED_STATE
+        context.user_data[LOGGED] = False
+        return
     except ApiError as e:
         update.message.reply_text(
             "⚠️ Non riesco a effettuare il login. Riprova più tardi.."
@@ -168,7 +139,7 @@ def stamp_command(update: Update, context: CallbackContext) -> int:
             f"Failed to authenticate a user {update.message.from_user.first_name}: {e}"
         )
 
-        return LOGGED_STATE
+        return
 
     try:
         last_stamps = zucchetti_api.last_stamps()
@@ -181,49 +152,51 @@ def stamp_command(update: Update, context: CallbackContext) -> int:
             f"Failed to obtain status for user {update.message.from_user.first_name}: {e}"
         )
 
-        return LOGGED_STATE
+        return
 
-    buttons = [InlineKeyboardButton(text="Cancella", callback_data=CANCEL_CALLBACK)]
+    buttons = [("Cancella", CANCEL_CALLBACK)]
 
     if len(last_stamps) == 0 or last_stamps[-1][0] == "U":
         message = "Un nuovo turno deve iniziare! 🌞"
-        buttons.append(
-            InlineKeyboardButton(text="Timbra entrata", callback_data=ENTER_CALLBACK)
-        )
+        buttons.append(("Timbra entrata", ENTER_CALLBACK))
     else:
         message = "Turno finito! 🌚"
-        buttons.append(
-            InlineKeyboardButton(text="Timbra uscita", callback_data=EXIT_CALLBACK)
-        )
+        buttons.append(("Timbra uscita", EXIT_CALLBACK))
 
-    keyboard = InlineKeyboardMarkup([buttons])
     message += "\n\n" + stamp_message(last_stamps)
 
-    update.message.reply_text(text=message, reply_markup=keyboard)
+    update.message.reply_text(
+        text=message, reply_markup=make_keyboard([buttons], context)
+    )
 
-    return LOGGED_STATE
 
-
-def cancel(update: Update, context: CallbackContext) -> int:
+@callback
+def cancel_callback(update: Update, context: CallbackContext):
     update.callback_query.delete_message()
 
-    return LOGGED_STATE
 
-
-def enter(update: Update, context: CallbackContext) -> int:
+@callback
+def enter_callback(update: Update, context: CallbackContext):
     return stamp(update, context, True)
 
 
-def exit(update: Update, context: CallbackContext) -> int:
+@callback
+def exit_callback(update: Update, context: CallbackContext):
     return stamp(update, context, False)
 
 
-def stamp(update: Update, context: CallbackContext, enter: bool) -> int:
+@logged_user
+def stamp(update: Update, context: CallbackContext, enter: bool):
+    context.user_data[STATE] = STATE_MAIN
+
     zucchetti_api = get_zucchetti_api(update, context)
     if not zucchetti_api:
-        return LOGIN_STATE
+        return
 
-    update.callback_query.answer()
+    if update.message:
+        reply = update.message.reply_text
+    else:
+        reply = update.callback_query.edit_message_text
 
     try:
         if enter:
@@ -233,34 +206,29 @@ def stamp(update: Update, context: CallbackContext, enter: bool) -> int:
 
         last_stamps = zucchetti_api.last_stamps()
     except ApiError as e:
-        update.callback_query.edit_message_text(
-            "⚠️ Non riesco a timbrare. Riprova più tardi.."
-        )
+        reply("⚠️ Non riesco a timbrare. Riprova più tardi..")
 
         logger.warning(
             f"Failed to stamp for user {update.callback_query.from_user.first_name}: {e}"
         )
 
-        return LOGGED_STATE
-
-    update.callback_query.edit_message_text(
-        f"Timbrato con successo 🤟🏽\n\n{stamp_message(last_stamps)}"
-    )
-
-    return LOGGED_STATE
-
-
-def message(update: Update, context: CallbackContext) -> int:
-    admins = os.getenv("ADMIN_USERS")
-    if not admins:
         return
 
-    if not str(update.message.from_user.id) in admins:
+    reply(f"Timbrato con successo 🤟🏽\n\n{stamp_message(last_stamps)}")
+
+
+@admin_user
+def message_command(update: Update, context: CallbackContext):
+    context.user_data[STATE] = STATE_MAIN
+
+    message = re.sub("^/messaggio", "", update.message.text).strip()
+    if message == "":
         return
 
-    message = re.sub("^/messaggio ", "", update.message.text)
     for user_id, _ in context.dispatcher.persistence.get_user_data().items():
-        context.bot.send_message(chat_id=user_id, text=message)
+        context.bot.send_message(
+            chat_id=user_id, text=f"{update.effective_user.first_name}: {message}"
+        )
 
 
 def stamp_message(stamps: list) -> str:
@@ -272,34 +240,34 @@ def stamp_message(stamps: list) -> str:
     )
 
 
+@logged_user
 def stamp_reminder(context: CallbackContext) -> None:
-    bot = context.job.context['bot']
-    user_id = context.job.context['user_id']
-    schedule_data = context.job.context['schedule_data']
+    context.user_data[STATE] = STATE_MAIN
+
+    bot = context.job.context["bot"]
+    user_id = context.job.context["user_id"]
+    schedule_data = context.job.context["schedule_data"]
 
     stamp_type = schedule_data["stamp_type"]
     zucchetti_api = zucchetti_users.get(user_id)
     if not zucchetti_api:
-        message = (
-            f"Hey! Forse dovresti timbrare l'{stamp_type}, ma non ho più le tue credenziali per poter verificare 😕"
+        message = f"Hey! Forse dovresti timbrare l'{stamp_type}, ma non ho più le tue credenziali per poter verificare 😕"
+        bot.send_message(
+            chat_id=user_id,
+            text=message,
+            reply_markup=make_keyboard(("Login", LOGIN_CALLBACK), context),
         )
-        button = InlineKeyboardButton(text="Login", callback_data=LOGIN_CALLBACK)
-        keyboard = InlineKeyboardMarkup.from_button(button)
-        bot.send_message(chat_id=user_id, text=message, reply_markup=keyboard)
         return
 
     error_message = f"Hey! Dovresti tibrare l'{stamp_type}, "
     try:
         zucchetti_api.login()
     except InvalidCredentials:
-        button = InlineKeyboardButton(text="Login", callback_data=LOGIN_CALLBACK)
-        keyboard = InlineKeyboardMarkup.from_button(button)
-
         bot.send_message(
             chat_id=user_id,
             text=error_message
             + "ma le credenziali che avevi precedentemente inserito non sono più valide 🙁",
-            reply_markup=keyboard,
+            reply_markup=make_keyboard(("Login", LOGIN_CALLBACK), context),
         )
 
         return
@@ -327,36 +295,18 @@ def stamp_reminder(context: CallbackContext) -> None:
             # already stamp
             return
 
-    keyboard = None
-    message = (
-        f"Hey! Devi timbrare l'{stamp_type}! 📢\n\n"
-        + stamp_message(last_stamps)
-    )
+    message = f"Hey! Devi timbrare l'{stamp_type}! 📢\n\n" + stamp_message(last_stamps)
     if stamp_type == "entrata":
-        button = InlineKeyboardButton(
-            text="Timbra entrata", callback_data=ENTER_CALLBACK
-        )
+        button = ("Timbra entrata", ENTER_CALLBACK)
     else:
-        button = InlineKeyboardButton(text="Timbra uscita", callback_data=EXIT_CALLBACK)
-    buttons = [
-        [
-            InlineKeyboardButton(text="Cancella", callback_data=CANCEL_CALLBACK),
-            button,
-        ],
-    ]
-    keyboard = InlineKeyboardMarkup(buttons)
+        button = ("Timbra uscita", EXIT_CALLBACK)
+    keyboard = make_keyboard([[("Cancella", CANCEL_CALLBACK), button]])
 
     bot.send_message(chat_id=user_id, text=message, reply_markup=keyboard)
 
 
-def notification_menu(update: Update, context: CallbackContext) -> int:
+def notification_command(update: Update, context: CallbackContext):
     notifications.main_menu(update, context)
-
-    return NOTIFICATION_STATE
-
-
-def unknown_callback(update: Update, context: CallbackContext) -> int:
-    update.callback_query.delete_message()
 
 
 def run() -> None:
@@ -364,44 +314,31 @@ def run() -> None:
     persistence = PicklePersistence(filename=os.path.join(data_dir, "bot.db"))
     updater = Updater(os.getenv("TELEGRAM_TOKEN"), persistence=persistence)
 
+    print(persistence.user_data)
+
     dispatcher = updater.dispatcher
 
-    main_handler = ConversationHandler(
-        entry_points=[
-            CommandHandler("start", start),
-            CommandHandler("login", login),
-            CommandHandler("timbra", login),
-        ],
-        states={
-            UNLOGGED_STATE: [
-                CommandHandler("login", login),
-                CallbackQueryHandler(login, pattern="^" + LOGIN_CALLBACK + "$"),
-            ],
-            LOGIN_STATE: [MessageHandler(Filters.text & ~Filters.command, login)],
-            LOGGED_STATE: [
-                CommandHandler("timbra", stamp_command),
-                CommandHandler("login", login),
-                CommandHandler("notifiche", notification_menu),
-                CallbackQueryHandler(login, pattern="^" + LOGIN_CALLBACK + "$"),
-                CallbackQueryHandler(cancel, pattern="^" + CANCEL_CALLBACK + "$"),
-                CallbackQueryHandler(enter, pattern="^" + ENTER_CALLBACK + "$"),
-                CallbackQueryHandler(exit, pattern="^" + EXIT_CALLBACK + "$"),
-            ],
-            NOTIFICATION_STATE: [
-                notifications.notification_handler(LOGGED_STATE, stamp_reminder),
-            ],
-        },
-        fallbacks=[
-            CommandHandler("messaggio", message),
-            CallbackQueryHandler(unknown_callback),
-        ],
-        name="main_conversation",
-        persistent=True,
-    )
+    handlers = [
+        CommandHandler("start", start_command),
+        CommandHandler("login", login_command),
+        CommandHandler("timbra", stamp_command),
+        CommandHandler("entra", enter_callback),
+        CommandHandler("esci", exit_callback),
+        CommandHandler("messaggio", message_command),
+        CommandHandler("notifiche", notification_command),
+        CallbackQueryHandler(login_callback, pattern=callback_pattern(LOGIN_CALLBACK)),
+        CallbackQueryHandler(
+            cancel_callback, pattern=callback_pattern(CANCEL_CALLBACK)
+        ),
+        CallbackQueryHandler(enter_callback, pattern=callback_pattern(ENTER_CALLBACK)),
+        CallbackQueryHandler(exit_callback, pattern=callback_pattern(EXIT_CALLBACK)),
+        MessageHandler(Filters.text & ~Filters.command, user_input),
+    ]
 
     notifications.setup_scheduler(updater, stamp_reminder)
 
-    dispatcher.add_handler(main_handler)
+    for handler in handlers:
+        dispatcher.add_handler(handler)
 
     updater.start_polling()
 
