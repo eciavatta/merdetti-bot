@@ -8,14 +8,19 @@ from telegram.ext import CallbackContext
 
 from .constants import *
 
+CALLBACK_SESSION = "callback_session"
+
 logger = logging.getLogger(__name__)
 
 
-def make_keyboard(buttons: list, context: CallbackContext):
+def make_keyboard(buttons: list, context: CallbackContext = None, user_data: dict = None):
     keyboard = []
 
     session = str(uuid.uuid4())
-    context.user_data[CALLBACK_SESSION] = session
+    if context:
+        context.user_data[CALLBACK_SESSION] = session
+    else:
+        user_data[CALLBACK_SESSION] = session
 
     if isinstance(buttons, list):
         for row in buttons:
@@ -103,3 +108,14 @@ def callback(func):
 
 def callback_pattern(key):
     return "^" + key + "#[\w-]+$"
+
+
+def command(func):
+    def wrapper(*args, **kwargs):
+        context = args[1]
+
+        context.user_data[INPUT_KIND] = None
+
+        func(*args, **kwargs)
+
+    return wrapper

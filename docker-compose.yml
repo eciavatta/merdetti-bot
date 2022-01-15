@@ -2,7 +2,7 @@ version: "3.7"
 
 services:
   merdetti-bot:
-    image: ghcr.io/eciavatta/merdetti-bot:latest
+    image: ghcr.io/eciavatta/merdetti-bot:main
     environment:
       TELEGRAM_TOKEN: telegram_token_here
       ZUCCHETTI_BASE_URL: https://www.myinfinityportal.it/zucchetti_merda

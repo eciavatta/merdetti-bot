@@ -1,39 +1,29 @@
 import logging
 import re
+from datetime import datetime
 from typing import Tuple
 
-from dateutil.tz import tzlocal
-from datetime import datetime
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
-from telegram.ext import (
-    CallbackContext,
-    CallbackQueryHandler,
-    ConversationHandler,
-    Filters,
-    MessageHandler,
-)
+from dateutil import tz
+from telegram import Update
+from telegram.ext import CallbackContext, CallbackQueryHandler
 from telegram.ext.updater import Updater
 
-(
-    INITIAL_STATE,
-    REMOVE_STATE,
-    REMOVE_EXIT_STATE,
-    CHOOSE_DAYS_STATE,
-    CHOOSE_TIME_STATE,
-    ADD_EXIT_STATE,
-) = map(chr, range(10, 16))
+from .constants import *
+from .helpers import callback, callback_pattern, logged_user, make_keyboard
 
 (
-    BACK_CALLBACK,
-    REMOVE_CALLBACK,
-    ADD_CALLBACK,
+    NOTIFICATION_EXIT_CALLBACK,
+    NOTIFICATION_BACK_CALLBACK,
+    NOTIFICATION_REMOVE_CALLBACK,
+    NOTIFICATION_ADD_CALLBACK,
     REMIND_ENTER_CALLBACK,
     REMIND_EXIT_CALLBACK,
     CHOOSE_TIME_CALLBACK,
 ) = (
-    "back_callback",
-    "remove_callback",
-    "add_callback",
+    "not_exit_callback",
+    "not_back_callback",
+    "not_remove_callback",
+    "not_add_callback",
     "remind_enter_callback",
     "remind_exit_callback",
     "choose_time_callback",
@@ -41,6 +31,9 @@ from telegram.ext.updater import Updater
 
 STAMP_REMINDERS = "stamp_reminders"
 TMP_NOTIFICATION = "tmp_notification"
+
+KIND_NOTIFICATION_INDEX = "notification_index"
+KIND_NOTIFICATION_TIME = "notification_time"
 
 DAYS_OF_WEEK = {
     0: "lunedì",
@@ -59,17 +52,16 @@ logger = logging.getLogger(__name__)
 notification_jobs = dict()
 
 
-def main_menu(update: Update, context: CallbackContext) -> int:
+@logged_user
+def main_menu(update: Update, context: CallbackContext):
     stamp_reminders = context.user_data.get(STAMP_REMINDERS)
-    buttons = [InlineKeyboardButton(text="Indietro", callback_data=BACK_CALLBACK)]
+    buttons = [("Indietro", NOTIFICATION_EXIT_CALLBACK)]
 
     if stamp_reminders and len(stamp_reminders) > 0:
-        buttons.append(
-            InlineKeyboardButton(text="Rimuovi 🔕", callback_data=REMOVE_CALLBACK)
-        )
+        buttons.append(("Rimuovi 🔕", NOTIFICATION_REMOVE_CALLBACK))
 
-    buttons.append(InlineKeyboardButton(text="Aggiungi 🔔", callback_data=ADD_CALLBACK))
-    keyboard = InlineKeyboardMarkup([buttons])
+    buttons.append(("Aggiungi 🔔", NOTIFICATION_ADD_CALLBACK))
+    keyboard = make_keyboard([buttons], context)
 
     message = (
         "Attraverso le notifiche ti posso avvertire quando ti dimentichi di timbrare 🚨"
@@ -81,19 +73,18 @@ def main_menu(update: Update, context: CallbackContext) -> int:
         update.callback_query.edit_message_text(text=message, reply_markup=keyboard)
 
 
-def end(update: Update, context: CallbackContext) -> int:
+@callback
+def exit_callback(update: Update, context: CallbackContext):
     update.callback_query.delete_message()
 
-    return ConversationHandler.END
 
-
-def back(update: Update, context: CallbackContext) -> int:
+@callback
+def back_callback(update: Update, context: CallbackContext):
     main_menu(update, context)
 
-    return INITIAL_STATE
 
-
-def remove_menu(update: Update, context: CallbackContext) -> int:
+@callback
+def remove_callback(update: Update, context: CallbackContext):
     stamp_reminders = context.user_data.get(STAMP_REMINDERS)
 
     message = "Invia il numero della notifica da rimuovere ✍🏽\n\n"
@@ -107,15 +98,13 @@ def remove_menu(update: Update, context: CallbackContext) -> int:
 
         message += f"{i+1}: {stamp_type} alle ore {when_time} nei giorni {when_days}\n"
 
-    button = InlineKeyboardButton(text="Indietro", callback_data=BACK_CALLBACK)
-    keyboard = InlineKeyboardMarkup.from_button(button)
-
+    keyboard = make_keyboard(("Indietro", NOTIFICATION_BACK_CALLBACK), context)
     update.callback_query.edit_message_text(text=message, reply_markup=keyboard)
 
-    return REMOVE_STATE
+    context.user_data[INPUT_KIND] = KIND_NOTIFICATION_INDEX
 
 
-def remove_action(update: Update, context: CallbackContext) -> int:
+def remove_action(update: Update, context: CallbackContext):
     try:
         index = int(update.message.text.strip())
         index -= 1
@@ -138,42 +127,42 @@ def remove_action(update: Update, context: CallbackContext) -> int:
     ].schedule_removal()
     context.user_data[STAMP_REMINDERS].remove(stamp_reminders[index])
 
-    button = InlineKeyboardButton(text="Indietro", callback_data=BACK_CALLBACK)
-    keyboard = InlineKeyboardMarkup.from_button(button)
+    keyboard = make_keyboard(("Indietro", NOTIFICATION_BACK_CALLBACK), context)
     update.message.reply_text(text="Notifica rimossa! ✅", reply_markup=keyboard)
 
-    return REMOVE_EXIT_STATE
+    context.user_data[INPUT_KIND] = None
 
 
-def add_menu(update: Update, context: CallbackContext) -> int:
+@callback
+def add_callback(update: Update, context: CallbackContext):
     context.user_data[TMP_NOTIFICATION] = {WHEN_DAYS: [0, 1, 2, 3, 4]}
 
     buttons = [
-        InlineKeyboardButton(text="Indietro", callback_data=BACK_CALLBACK),
-        InlineKeyboardButton(text="Entrata ➡️", callback_data=REMIND_ENTER_CALLBACK),
-        InlineKeyboardButton(text="Uscita ⬅️", callback_data=REMIND_EXIT_CALLBACK),
+        ("Indietro", NOTIFICATION_BACK_CALLBACK),
+        ("Entrata ➡️", REMIND_ENTER_CALLBACK),
+        ("Uscita ⬅️", REMIND_EXIT_CALLBACK),
     ]
-    keyboard = InlineKeyboardMarkup([buttons])
     update.callback_query.edit_message_text(
-        "Scegli il tipo di notifica da aggiungere 📢", reply_markup=keyboard
+        "Scegli il tipo di notifica da aggiungere 📢",
+        reply_markup=make_keyboard([buttons], context),
     )
 
-    return CHOOSE_DAYS_STATE
 
-
-def choose_days(update: Update, context: CallbackContext) -> int:
+@callback
+def choose_days(update: Update, context: CallbackContext):
     tmp_notification = context.user_data[TMP_NOTIFICATION]
 
-    if update.callback_query.data == REMIND_ENTER_CALLBACK:
+    callback_data = update.callback_query.data[: update.callback_query.data.index("#")]
+    if callback_data == REMIND_ENTER_CALLBACK:
         tmp_notification[STAMP_TYPE] = "entrata"
         tmp_notification[WHEN_TIME] = "9:15"
-    elif update.callback_query.data == REMIND_EXIT_CALLBACK:
+    elif callback_data == REMIND_EXIT_CALLBACK:
         tmp_notification[STAMP_TYPE] = "uscita"
         tmp_notification[WHEN_TIME] = "18:15"
-    elif update.callback_query.data in DAYS_OF_WEEK.values():
+    elif callback_data in DAYS_OF_WEEK.values():
         when_days = tmp_notification[WHEN_DAYS]
         for index, name in DAYS_OF_WEEK.items():
-            if name == update.callback_query.data:
+            if name == callback_data:
                 current = index
                 break
 
@@ -183,10 +172,7 @@ def choose_days(update: Update, context: CallbackContext) -> int:
             when_days.append(current)
             when_days.sort()
 
-    days_of_week_buttons = [
-        InlineKeyboardButton(text=day.capitalize(), callback_data=day)
-        for day in DAYS_OF_WEEK.values()
-    ]
+    days_of_week_buttons = [(day.capitalize(), day) for day in DAYS_OF_WEEK.values()]
 
     message = "Scegli i giorni della settimana in cui vuoi essere notificato 🗓️\n\nGiorni abilitati: "
     message += ", ".join(DAYS_OF_WEEK[d] for d in tmp_notification[WHEN_DAYS])
@@ -196,18 +182,19 @@ def choose_days(update: Update, context: CallbackContext) -> int:
         days_of_week_buttons[3:6],
         [
             days_of_week_buttons[6],
-            InlineKeyboardButton(text="Indietro", callback_data=BACK_CALLBACK),
-            InlineKeyboardButton(text="Fatto", callback_data=CHOOSE_TIME_CALLBACK),
+            ("Indietro", NOTIFICATION_BACK_CALLBACK),
+            ("Fatto", CHOOSE_TIME_CALLBACK),
         ],
     ]
-    keyboard = InlineKeyboardMarkup(buttons)
-    update.callback_query.edit_message_text(message, reply_markup=keyboard)
+    update.callback_query.edit_message_text(
+        message, reply_markup=make_keyboard(buttons, context)
+    )
 
 
 def choose_time_wrapper(stamp_reminder_callback):
-    def choose_time(update: Update, context: CallbackContext) -> int:
-        button = InlineKeyboardButton(text="Indietro", callback_data=BACK_CALLBACK)
-        keyboard = InlineKeyboardMarkup.from_button(button)
+    @callback
+    def choose_time(update: Update, context: CallbackContext):
+        keyboard = make_keyboard(("Indietro", NOTIFICATION_BACK_CALLBACK), context)
 
         if update.callback_query:
             message = (
@@ -215,7 +202,8 @@ def choose_time_wrapper(stamp_reminder_callback):
             )
             update.callback_query.edit_message_text(text=message, reply_markup=keyboard)
 
-            return CHOOSE_TIME_STATE
+            context.user_data[INPUT_KIND] = KIND_NOTIFICATION_TIME
+            return
 
         input_time = update.message.text.strip()
         if re.match(r"^(0[0-9]|1[0-9]|2[0-3]):[0-5][0-9]$", input_time):
@@ -229,28 +217,31 @@ def choose_time_wrapper(stamp_reminder_callback):
             reminders.append(schedule_data)
             context.user_data[STAMP_REMINDERS] = reminders
 
-            job_time = (
-                datetime.strptime(schedule_data[WHEN_TIME], "%H:%M")
-                .replace(tzinfo=tzlocal())
-                .time()
-            )
             job = context.job_queue.run_daily(
                 stamp_reminder_callback,
-                time=job_time,
+                time=job_time(schedule_data[WHEN_TIME]),
                 days=schedule_data[WHEN_DAYS],
                 context={
                     "bot": context.bot,
                     "user_id": user_id,
+                    "user_data": context.user_data,
                     "schedule_data": schedule_data,
                 },
             )
 
+            logger.info(
+                "Added reminder for user %s (%s): %s",
+                user_id,
+                update.effective_user.first_name,
+                schedule_data,
+            )
             notification_jobs[(user_id, notification_key(schedule_data))] = job
 
             message = "Notifica aggiunta! ✅"
             update.message.reply_text(text=message, reply_markup=keyboard)
 
-            return ADD_EXIT_STATE
+            context.user_data[INPUT_KIND] = None
+            return
 
         message = "L'orario deve essere nel formato HH:MM ⚠️"
         update.message.reply_text(text=message, reply_markup=keyboard)
@@ -259,73 +250,61 @@ def choose_time_wrapper(stamp_reminder_callback):
 
 
 def setup_scheduler(updater: Updater, stamp_reminder_callback):
-    for user_id, user_values in updater.persistence.get_user_data().items():
+    for user_id, user_values in updater.dispatcher.user_data.items():
         if STAMP_REMINDERS in user_values:
             for schedule_data in user_values[STAMP_REMINDERS]:
-                job_time = (
-                    datetime.strptime(schedule_data[WHEN_TIME], "%H:%M")
-                    .replace(tzinfo=tzlocal())
-                    .time()
-                )
                 job = updater.job_queue.run_daily(
                     stamp_reminder_callback,
-                    time=job_time,
+                    time=job_time(schedule_data[WHEN_TIME]),
                     days=schedule_data[WHEN_DAYS],
                     context={
                         "bot": updater.bot,
                         "user_id": user_id,
+                        "user_data": user_values,
                         "schedule_data": schedule_data,
                     },
                 )
 
+                logger.info("Setup reminder for user %s: %s", user_id, schedule_data)
+
                 notification_jobs[(user_id, notification_key(schedule_data))] = job
 
 
-def notification_handler(exit_state: int, stamp_reminder_callback):
-    menu_state = [
-        CallbackQueryHandler(end, pattern="^" + BACK_CALLBACK + "$"),
-        CallbackQueryHandler(remove_menu, pattern="^" + REMOVE_CALLBACK + "$"),
-        CallbackQueryHandler(add_menu, pattern="^" + ADD_CALLBACK + "$"),
-    ]
-
+def handlers(stamp_reminder_callback):
     choose_time_handler = choose_time_wrapper(stamp_reminder_callback)
 
-    return ConversationHandler(
-        entry_points=menu_state,
-        states={
-            INITIAL_STATE: menu_state,
-            REMOVE_STATE: [
-                MessageHandler(Filters.text & ~Filters.command, remove_action),
-                CallbackQueryHandler(back, pattern="^" + BACK_CALLBACK + "$"),
-            ],
-            REMOVE_EXIT_STATE: [
-                CallbackQueryHandler(back, pattern="^" + BACK_CALLBACK + "$"),
-            ],
-            CHOOSE_DAYS_STATE: [
-                CallbackQueryHandler(
-                    choose_days,
-                    pattern=f'^({REMIND_ENTER_CALLBACK}|{REMIND_EXIT_CALLBACK}|{"|".join(DAYS_OF_WEEK.values())})$',
-                ),
-                CallbackQueryHandler(
-                    choose_time_handler, pattern="^" + CHOOSE_TIME_CALLBACK + "$"
-                ),
-                CallbackQueryHandler(back, pattern="^" + BACK_CALLBACK + "$"),
-            ],
-            CHOOSE_TIME_STATE: [
-                CallbackQueryHandler(back, pattern="^" + BACK_CALLBACK + "$"),
-                MessageHandler(Filters.text & ~Filters.command, choose_time_handler),
-            ],
-            ADD_EXIT_STATE: [
-                CallbackQueryHandler(back, pattern="^" + BACK_CALLBACK + "$"),
-            ],
-        },
-        fallbacks=[],
-        map_to_parent={
-            ConversationHandler.END: exit_state,
-        },
-        name="notification_handler",
-        persistent=True,
-    )
+    return [
+        CallbackQueryHandler(
+            exit_callback, pattern=callback_pattern(NOTIFICATION_EXIT_CALLBACK)
+        ),
+        CallbackQueryHandler(
+            back_callback, pattern=callback_pattern(NOTIFICATION_BACK_CALLBACK)
+        ),
+        CallbackQueryHandler(
+            remove_callback, pattern=callback_pattern(NOTIFICATION_REMOVE_CALLBACK)
+        ),
+        CallbackQueryHandler(
+            add_callback, pattern=callback_pattern(NOTIFICATION_ADD_CALLBACK)
+        ),
+        CallbackQueryHandler(
+            choose_days,
+            pattern=callback_pattern(
+                f'({REMIND_ENTER_CALLBACK}|{REMIND_EXIT_CALLBACK}|{"|".join(DAYS_OF_WEEK.values())})'
+            ),
+        ),
+        CallbackQueryHandler(
+            choose_time_handler, pattern=callback_pattern(CHOOSE_TIME_CALLBACK)
+        ),
+    ]
+
+
+def user_input_handlers(stamp_reminder_callback):
+    choose_time_handler = choose_time_wrapper(stamp_reminder_callback)
+
+    return [
+        (KIND_NOTIFICATION_TIME, choose_time_handler),
+        (KIND_NOTIFICATION_INDEX, remove_action),
+    ]
 
 
 def notification_key(notification: dict) -> Tuple:
@@ -333,4 +312,13 @@ def notification_key(notification: dict) -> Tuple:
         notification[STAMP_TYPE],
         ",".join([str(d) for d in notification[WHEN_DAYS]]),
         notification[WHEN_TIME],
+    )
+
+
+def job_time(time):
+    return (
+        datetime.strptime(time, "%H:%M")
+        .replace(tzinfo=tz.tzlocal())
+        .astimezone(tz.UTC)
+        .time()
     )
