@@ -323,5 +323,6 @@ def job_time(time):
     return (
         datetime.strptime(time, "%H:%M")
         .replace(tzinfo=tz.tzlocal())
+        .astimezone(tz.UTC)
         .time()
     )
