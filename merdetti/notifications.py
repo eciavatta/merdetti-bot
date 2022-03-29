@@ -253,21 +253,25 @@ def setup_scheduler(updater: Updater, stamp_reminder_callback):
     for user_id, user_values in updater.dispatcher.user_data.items():
         if STAMP_REMINDERS in user_values:
             for schedule_data in user_values[STAMP_REMINDERS]:
-                job = updater.job_queue.run_daily(
-                    stamp_reminder_callback,
-                    time=job_time(schedule_data[WHEN_TIME]),
-                    days=schedule_data[WHEN_DAYS],
-                    context={
-                        "bot": updater.bot,
-                        "user_id": user_id,
-                        "user_data": user_values,
-                        "schedule_data": schedule_data,
-                    },
-                )
+                try:
+                    print(job_time(schedule_data[WHEN_TIME]))
+                    job = updater.job_queue.run_daily(
+                        stamp_reminder_callback,
+                        time=job_time(schedule_data[WHEN_TIME]),
+                        days=schedule_data[WHEN_DAYS],
+                        context={
+                            "bot": updater.bot,
+                            "user_id": user_id,
+                            "user_data": user_values,
+                            "schedule_data": schedule_data,
+                        },
+                    )
 
-                logger.info("Setup reminder for user %s: %s", user_id, schedule_data)
+                    logger.info("Setup reminder for user %s: %s", user_id, schedule_data)
 
-                notification_jobs[(user_id, notification_key(schedule_data))] = job
+                    notification_jobs[(user_id, notification_key(schedule_data))] = job
+                except Exception as ex:
+                    logger.error("Failed to add reminder for user %s: %s", user_id, ex)
 
 
 def handlers(stamp_reminder_callback):
@@ -319,6 +323,5 @@ def job_time(time):
     return (
         datetime.strptime(time, "%H:%M")
         .replace(tzinfo=tz.tzlocal())
-        .astimezone(tz.UTC)
         .time()
     )
